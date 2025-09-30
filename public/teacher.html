@@ -33,31 +33,37 @@
         localStream = stream;
         localVideo.srcObject = stream;
         socket.emit('join-room', 'teacher');
-      });
+      })
+      .catch(err => console.error("getUserMedia error:", err));
 
     // مشاركة الشاشة
     document.getElementById('shareScreen').onclick = async () => {
-      screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-      localVideo.srcObject = screenStream;
-      // استبدال الفيديو في كل Peer
-      for (let id in peers) {
-        const pc = peers[id];
-        const videoTrack = screenStream.getVideoTracks()[0];
-        const sender = pc.getSenders().find(s => s.track.kind === 'video');
-        sender.replaceTrack(videoTrack);
+      try {
+        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        localVideo.srcObject = screenStream;
+
+        for (let id in peers) {
+          const pc = peers[id];
+          const videoTrack = screenStream.getVideoTracks()[0];
+          const sender = pc.getSenders().find(s => s.track.kind === 'video');
+          if (sender) sender.replaceTrack(videoTrack);
+        }
+      } catch(err) {
+        console.error("Screen share failed:", err);
       }
     };
 
+    // إيقاف مشاركة الشاشة
     document.getElementById('stopScreen').onclick = () => {
       if (!screenStream) return;
       screenStream.getTracks().forEach(track => track.stop());
       localVideo.srcObject = localStream;
-      // إعادة الفيديو الأصلي للطلاب
+
       for (let id in peers) {
         const pc = peers[id];
         const videoTrack = localStream.getVideoTracks()[0];
         const sender = pc.getSenders().find(s => s.track.kind === 'video');
-        sender.replaceTrack(videoTrack);
+        if (sender) sender.replaceTrack(videoTrack);
       }
     };
 
@@ -73,7 +79,7 @@
       studentsList.appendChild(li);
 
       const pc = new RTCPeerConnection();
-      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+      if(localStream) localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
       pc.onicecandidate = event => {
         if (event.candidate) {
@@ -89,6 +95,7 @@
       });
     });
 
+    // استقبال signal
     socket.on('signal', async data => {
       const pc = peers[data.from];
       if (!pc) return;
