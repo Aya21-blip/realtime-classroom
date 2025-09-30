@@ -12,29 +12,52 @@
   <script src="/socket.io/socket.io.js"></script>
   <script>
     const socket = io();
-    const videoElement = document.getElementById('teacherVideo');
+    const remoteVideo = document.getElementById('teacherVideo');
+    let pc;
 
-    // الانضمام كطالب
     socket.emit('join-room', 'student');
 
-    // استلام بث المدرس
-    socket.on('signal', async (data) => {
-      console.log('Received signal from teacher', data);
-      // هنا يمكن توسيع الكود لإضافة WebRTC peer connection إذا أردت بث متقدم
+    // استقبال signal من المدرس
+    socket.on('signal', async data => {
+      if (!pc) {
+        pc = new RTCPeerConnection();
+
+        pc.ontrack = event => {
+          remoteVideo.srcObject = event.streams[0];
+        };
+
+        pc.onicecandidate = event => {
+          if (event.candidate) {
+            socket.emit('signal', { to: data.from, signal: { candidate: event.candidate } });
+          }
+        };
+      }
+
+      if (data.signal.sdp) {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.signal.sdp));
+        if (data.signal.sdp.type === 'offer') {
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          socket.emit('signal', { to: data.from, signal: { sdp: answer } });
+        }
+      }
+
+      if (data.signal.candidate) {
+        await pc.addIceCandidate(new RTCIceCandidate(data.signal.candidate));
+      }
     });
 
-    // التحكم بالميكروفون من قبل المدرس
-    socket.on('mic-toggled', ({ enable }) => {
+    // تفعيل/تعطيل مايك الطالب من المدرس
+    socket.on('mic-toggled', async ({ enable }) => {
       if (enable) {
-        navigator.mediaDevices.getUserMedia({ audio: true })
-          .then(stream => {
-            console.log('Mic enabled');
-          });
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(track => pc.addTrack(track, pc.localDescription ? stream : null));
       } else {
-        console.log('Mic disabled');
-        // يمكن إنهاء تدفق المايك هنا
+        const senders = pc.getSenders();
+        senders.forEach(s => { if (s.track && s.track.kind === 'audio') s.track.stop(); });
       }
     });
   </script>
 </body>
 </html>
+

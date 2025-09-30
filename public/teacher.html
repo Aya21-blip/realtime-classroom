@@ -7,31 +7,62 @@
 <body>
   <h1>Teacher View</h1>
 
-  <video id="teacherVideo" autoplay playsinline></video>
+  <video id="teacherVideo" autoplay playsinline muted></video>
+
   <div>
     <h2>Students</h2>
     <ul id="studentsList"></ul>
   </div>
 
+  <button id="shareScreen">Share Screen</button>
+  <button id="stopScreen">Stop Screen</button>
+
   <script src="/socket.io/socket.io.js"></script>
   <script>
-    const socket = io(); // يستخدم نفس الدومين الخارجي
-
-    const videoElement = document.getElementById('teacherVideo');
+    const socket = io();
+    const localVideo = document.getElementById('teacherVideo');
     const studentsList = document.getElementById('studentsList');
+    const peers = {};
 
-    // الانضمام كمدرس
-    socket.emit('join-room', 'teacher');
+    let localStream;
+    let screenStream;
 
     // الحصول على الكاميرا والميكروفون
     navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       .then(stream => {
-        videoElement.srcObject = stream;
-      })
-      .catch(err => console.error('Error accessing media devices', err));
+        localStream = stream;
+        localVideo.srcObject = stream;
+        socket.emit('join-room', 'teacher');
+      });
 
-    // ظهور الطلاب عند الانضمام
-    socket.on('student-joined', (studentId) => {
+    // مشاركة الشاشة
+    document.getElementById('shareScreen').onclick = async () => {
+      screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      localVideo.srcObject = screenStream;
+      // استبدال الفيديو في كل Peer
+      for (let id in peers) {
+        const pc = peers[id];
+        const videoTrack = screenStream.getVideoTracks()[0];
+        const sender = pc.getSenders().find(s => s.track.kind === 'video');
+        sender.replaceTrack(videoTrack);
+      }
+    };
+
+    document.getElementById('stopScreen').onclick = () => {
+      if (!screenStream) return;
+      screenStream.getTracks().forEach(track => track.stop());
+      localVideo.srcObject = localStream;
+      // إعادة الفيديو الأصلي للطلاب
+      for (let id in peers) {
+        const pc = peers[id];
+        const videoTrack = localStream.getVideoTracks()[0];
+        const sender = pc.getSenders().find(s => s.track.kind === 'video');
+        sender.replaceTrack(videoTrack);
+      }
+    };
+
+    // طالب جديد انضم
+    socket.on('student-joined', studentId => {
       const li = document.createElement('li');
       li.id = studentId;
       li.innerHTML = `
@@ -40,15 +71,41 @@
         <button onclick="toggleMic('${studentId}', false)">Disable Mic</button>
       `;
       studentsList.appendChild(li);
+
+      const pc = new RTCPeerConnection();
+      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+      pc.onicecandidate = event => {
+        if (event.candidate) {
+          socket.emit('signal', { to: studentId, signal: { candidate: event.candidate } });
+        }
+      };
+
+      peers[studentId] = pc;
+
+      pc.createOffer().then(offer => {
+        pc.setLocalDescription(offer);
+        socket.emit('signal', { to: studentId, signal: { sdp: offer } });
+      });
     });
 
-    // تفعيل/تعطيل المايك للطالب
+    socket.on('signal', async data => {
+      const pc = peers[data.from];
+      if (!pc) return;
+      if (data.signal.sdp) {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.signal.sdp));
+      }
+      if (data.signal.candidate) {
+        await pc.addIceCandidate(new RTCIceCandidate(data.signal.candidate));
+      }
+    });
+
+    // تفعيل/تعطيل مايك الطالب
     function toggleMic(studentId, enable) {
       socket.emit('toggle-mic', { studentId, enable });
     }
   </script>
 </body>
 </html>
-
 
 
