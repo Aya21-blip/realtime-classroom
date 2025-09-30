@@ -1,99 +1,54 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Teacher Live</title>
-  <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
-  <style>
-    body { font-family: Arial; text-align: center; }
-    #local-player, #screen-player { width: 400px; height: 300px; background: #000; margin: 10px auto; }
-    ul { list-style: none; padding: 0; }
-    li { margin: 10px 0; display: flex; justify-content: center; gap: 5px; align-items: center; }
-    button { padding: 5px 10px; }
-  </style>
+  <title>Teacher - Realtime Classroom</title>
 </head>
 <body>
-  <h2>Teacher Live Broadcast</h2>
-  <div id="local-player"></div>
-  <div id="screen-player"></div>
-  <button id="start-camera-btn">Start Camera</button>
-  <button id="share-screen-btn">Share Screen</button>
-  <button id="stop-btn">Stop Broadcast</button>
+  <h1>Teacher View</h1>
 
-  <h3>Students</h3>
-  <ul id="studentsList"></ul>
+  <video id="teacherVideo" autoplay playsinline></video>
+  <div>
+    <h2>Students</h2>
+    <ul id="studentsList"></ul>
+  </div>
 
+  <script src="/socket.io/socket.io.js"></script>
   <script>
-    const client = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
-    const appId = "afa944657ccc421290402e86ec596f4d";
-    const channel = "OnlineClassroom";
-    let localTrack, screenTrack;
-    const students = {};
+    const socket = io(); // يستخدم نفس الدومين الخارجي
 
-    // بدء بث الكاميرا (يمكن اختيار الكاميرا الخلفية للهواتف)
-    document.getElementById("start-camera-btn").onclick = async () => {
-      await client.join(appId, channel, null, null);
-      client.setClientRole("host");
-      localTrack = await AgoraRTC.createCameraVideoTrack({ cameraId: "" }); // اترك فارغ ليختار الافتراضي أو يمكن تحديد "back" للهاتف
-      await client.publish([localTrack]);
-      localTrack.play("local-player");
-      console.log("Camera broadcast started");
-    };
+    const videoElement = document.getElementById('teacherVideo');
+    const studentsList = document.getElementById('studentsList');
 
-    // مشاركة الشاشة
-    document.getElementById("share-screen-btn").onclick = async () => {
-      if(!client.uid) await client.join(appId, channel, null, null);
-      screenTrack = await AgoraRTC.createScreenVideoTrack();
-      await client.publish([screenTrack]);
-      screenTrack.play("screen-player");
-      console.log("Screen sharing started");
-    };
+    // الانضمام كمدرس
+    socket.emit('join-room', 'teacher');
 
-    // إيقاف البث
-    document.getElementById("stop-btn").onclick = async () => {
-      if(localTrack) { localTrack.stop(); localTrack.close(); await client.unpublish([localTrack]); }
-      if(screenTrack) { screenTrack.stop(); screenTrack.close(); await client.unpublish([screenTrack]); }
-      console.log("Broadcast stopped");
-    };
+    // الحصول على الكاميرا والميكروفون
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      .then(stream => {
+        videoElement.srcObject = stream;
+      })
+      .catch(err => console.error('Error accessing media devices', err));
 
-    // استقبال الطلاب وانضمامهم
-    client.on("stream-message", (evt) => {
-      const msg = evt.msg;
-      if(msg.type === "join") {
-        if(!students[evt.uid]){
-          students[evt.uid] = { uid: evt.uid };
-          addStudent(evt.uid);
-        }
-      }
-      if(msg.type === "question") {
-        alert(`Student ${evt.uid} requested a question`);
-      }
+    // ظهور الطلاب عند الانضمام
+    socket.on('student-joined', (studentId) => {
+      const li = document.createElement('li');
+      li.id = studentId;
+      li.innerHTML = `
+        ${studentId} 
+        <button onclick="toggleMic('${studentId}', true)">Enable Mic</button>
+        <button onclick="toggleMic('${studentId}', false)">Disable Mic</button>
+      `;
+      studentsList.appendChild(li);
     });
 
-    function addStudent(uid){
-      const list = document.getElementById("studentsList");
-      if(document.getElementById("student-"+uid)) return;
-
-      const li = document.createElement("li");
-      li.id = "student-"+uid;
-      li.innerText = `Student ${uid}`;
-
-      const enableMicBtn = document.createElement("button");
-      enableMicBtn.innerText = "Enable Mic";
-      enableMicBtn.onclick = () => client.sendStreamMessage(uid, { type:"toggle-mic", enable:true });
-
-      const disableMicBtn = document.createElement("button");
-      disableMicBtn.innerText = "Disable Mic";
-      disableMicBtn.onclick = () => client.sendStreamMessage(uid, { type:"toggle-mic", enable:false });
-
-      li.appendChild(enableMicBtn);
-      li.appendChild(disableMicBtn);
-      list.appendChild(li);
+    // تفعيل/تعطيل المايك للطالب
+    function toggleMic(studentId, enable) {
+      socket.emit('toggle-mic', { studentId, enable });
     }
   </script>
 </body>
 </html>
-
 
 
 
