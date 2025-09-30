@@ -1,119 +1,126 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Teacher - Realtime Classroom</title>
+<meta charset="UTF-8">
+<title>Teacher - Realtime Classroom</title>
+<style>
+  video { width: 45%; border: 2px solid black; margin: 5px; background-color: black; }
+  button { margin: 5px; padding: 10px; }
+</style>
 </head>
 <body>
-  <h1>Teacher View</h1>
+<h1>Teacher View</h1>
 
-  <video id="teacherVideo" autoplay playsinline muted style="width: 300px; border: 1px solid black;"></video>
+<video id="teacherVideo" autoplay playsinline muted></video>
 
-  <div>
-    <h2>Students</h2>
-    <ul id="studentsList"></ul>
-  </div>
+<div>
+  <button id="startBtn">▶️ Start Streaming</button>
+  <button id="shareBtn">📺 Share Screen</button>
+  <button id="stopBtn">⛔ Stop Sharing</button>
+</div>
 
-  <button id="shareScreen">Share Screen</button>
-  <button id="stopScreen">Stop Screen</button>
+<h3>Students:</h3>
+<ul id="studentsList"></ul>
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script>
-    const socket = io();
-    const localVideo = document.getElementById('teacherVideo');
-    const studentsList = document.getElementById('studentsList');
-    const peers = {};
+<h3>Student Requests:</h3>
+<ul id="requestsList"></ul>
 
-    let localStream;
-    let screenStream;
+<script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+<script>
+const socket = io();
+const teacherVideo = document.getElementById('teacherVideo');
+const startBtn = document.getElementById('startBtn');
+const shareBtn = document.getElementById('shareBtn');
+const stopBtn = document.getElementById('stopBtn');
+const studentsList = document.getElementById('studentsList');
+const requestsList = document.getElementById('requestsList');
 
-    // احضار الكاميرا والمايك
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-      .then(stream => {
-        localStream = stream;
-        localVideo.srcObject = stream;
-        socket.emit('join-room', 'teacher');
-      })
-      .catch(err => {
-        console.error("Error accessing media devices.", err);
-      });
+let localStream = null;
+let screenStream = null;
+const peers = {};
 
-    // عند انضمام طالب
-    socket.on('student-joined', studentId => {
-      const li = document.createElement('li');
-      li.id = studentId;
-      li.innerHTML = `
-        ${studentId}
-        <button onclick="toggleMic('${studentId}', true)">Enable Mic</button>
-        <button onclick="toggleMic('${studentId}', false)">Disable Mic</button>
-      `;
-      studentsList.appendChild(li);
+startBtn.onclick = async () => {
+  localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  teacherVideo.srcObject = localStream;
+  socket.emit("join-room", "teacher");
+};
 
-      const pc = new RTCPeerConnection();
-      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+// مشاركة الشاشة
+shareBtn.onclick = async () => {
+  if(!localStream) return;
+  screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+  teacherVideo.srcObject = screenStream;
 
-      pc.onicecandidate = event => {
-        if (event.candidate) {
-          socket.emit('signal', { to: studentId, signal: { candidate: event.candidate } });
-        }
-      };
+  for (let id in peers) {
+    const pc = peers[id];
+    const videoTrack = screenStream.getVideoTracks()[0];
+    const sender = pc.getSenders().find(s => s.track.kind === 'video');
+    if(sender) sender.replaceTrack(videoTrack);
+  }
+};
 
-      peers[studentId] = pc;
+// إيقاف مشاركة الشاشة
+stopBtn.onclick = () => {
+  if(!screenStream) return;
+  screenStream.getTracks().forEach(track => track.stop());
+  teacherVideo.srcObject = localStream;
 
-      pc.createOffer().then(offer => {
-        pc.setLocalDescription(offer);
-        socket.emit('signal', { to: studentId, signal: { sdp: offer } });
-      });
-    });
+  for (let id in peers) {
+    const pc = peers[id];
+    const videoTrack = localStream.getVideoTracks()[0];
+    const sender = peers[id].getSenders().find(s => s.track.kind === 'video');
+    if(sender) sender.replaceTrack(videoTrack);
+  }
+};
 
-    socket.on('signal', async data => {
-      const pc = peers[data.from];
-      if (!pc) return;
-      if (data.signal.sdp) {
-        await pc.setRemoteDescription(new RTCSessionDescription(data.signal.sdp));
-      }
-      if (data.signal.candidate) {
-        await pc.addIceCandidate(new RTCIceCandidate(data.signal.candidate));
-      }
-    });
+// طالب جديد انضم
+socket.on("student-joined", studentId => {
+  const li = document.createElement("li");
+  li.textContent = studentId;
+  studentsList.appendChild(li);
 
-    function toggleMic(studentId, enable) {
-      socket.emit('toggle-mic', { studentId, enable });
+  const pc = new RTCPeerConnection();
+  localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+  pc.onicecandidate = event => {
+    if(event.candidate){
+      socket.emit("signal", { to: studentId, signal: { candidate: event.candidate } });
     }
+  };
 
-    // مشاركة الشاشة
-    document.getElementById('shareScreen').onclick = async () => {
-      try {
-        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-        localVideo.srcObject = screenStream;
+  pc.createOffer().then(offer => {
+    pc.setLocalDescription(offer);
+    socket.emit("signal", { to: studentId, signal: { sdp: offer } });
+  });
 
-        for (let id in peers) {
-          const pc = peers[id];
-          const videoTrack = screenStream.getVideoTracks()[0];
-          const sender = pc.getSenders().find(s => s.track.kind === 'video');
-          if (sender) sender.replaceTrack(videoTrack);
-        }
-      } catch (err) {
-        console.error("Screen share failed:", err);
-      }
-    };
+  peers[studentId] = pc;
+});
 
-    // توقيف مشاركة الشاشة
-    document.getElementById('stopScreen').onclick = () => {
-      if (!screenStream) return;
-      screenStream.getTracks().forEach(track => track.stop());
-      localVideo.srcObject = localStream;
+// استقبال الإشارات من الطلاب
+socket.on("signal", async data => {
+  const pc = peers[data.from];
+  if(!pc) return;
+  if(data.signal.sdp){
+    await pc.setRemoteDescription(new RTCSessionDescription(data.signal.sdp));
+  }
+  if(data.signal.candidate){
+    await pc.addIceCandidate(new RTCIceCandidate(data.signal.candidate));
+  }
+});
 
-      for (let id in peers) {
-        const pc = peers[id];
-        const videoTrack = localStream.getVideoTracks()[0];
-        const sender = pc.getSenders().find(s => s.track.kind === 'video');
-        if (sender) sender.replaceTrack(videoTrack);
-      }
-    };
-  </script>
+// استقبال طلب المايك
+socket.on("request-mic", studentId => {
+  const li = document.createElement("li");
+  li.textContent = studentId;
+  const btn = document.createElement("button");
+  btn.textContent = "Enable Mic";
+  btn.onclick = () => {
+    socket.emit("enable-mic", studentId);
+    li.remove();
+  };
+  li.appendChild(btn);
+  requestsList.appendChild(li);
+});
+</script>
 </body>
 </html>
-
-
-

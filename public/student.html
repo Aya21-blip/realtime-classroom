@@ -1,63 +1,67 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Student - Realtime Classroom</title>
+<meta charset="UTF-8">
+<title>Student - Realtime Classroom</title>
+<style>
+  body { text-align: center; font-family: Arial, sans-serif; }
+  video { width: 90%; max-width: 1000px; border: 2px solid black; margin-top: 20px; background-color: black; }
+  button { margin: 10px; padding: 10px; }
+</style>
 </head>
 <body>
-  <h1>Student View</h1>
+<h1>Student View</h1>
+<video id="studentVideo" autoplay playsinline></video>
+<button id="requestMic">🎤 Request Mic</button>
 
-  <video id="teacherVideo" autoplay playsinline></video>
+<script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+<script>
+const socket = io();
+const studentVideo = document.getElementById("studentVideo");
+const requestMicBtn = document.getElementById("requestMic");
+const pc = new RTCPeerConnection();
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script>
-    const socket = io();
-    const remoteVideo = document.getElementById('teacherVideo');
-    let pc;
+pc.ontrack = event => {
+  studentVideo.srcObject = event.streams[0];
+};
 
-    socket.emit('join-room', 'student');
+pc.onicecandidate = event => {
+  if(event.candidate){
+    socket.emit("signal", { to: "teacher", signal: { candidate: event.candidate } });
+  }
+};
 
-    // استقبال signal من المدرس
-    socket.on('signal', async data => {
-      if (!pc) {
-        pc = new RTCPeerConnection();
+// الانضمام للصف
+socket.emit("join-room", "student");
 
-        pc.ontrack = event => {
-          remoteVideo.srcObject = event.streams[0];
-        };
+// استقبال إشارة من المعلم
+socket.on("signal", async data => {
+  if(data.signal.sdp){
+    await pc.setRemoteDescription(new RTCSessionDescription(data.signal.sdp));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socket.emit("signal", { to: data.from, signal: { sdp: answer } });
+  }
+  if(data.signal.candidate){
+    await pc.addIceCandidate(new RTCIceCandidate(data.signal.candidate));
+  }
+});
 
-        pc.onicecandidate = event => {
-          if (event.candidate) {
-            socket.emit('signal', { to: data.from, signal: { candidate: event.candidate } });
-          }
-        };
-      }
+// طلب المايك
+requestMicBtn.onclick = () => {
+  socket.emit("request-mic");
+};
 
-      if (data.signal.sdp) {
-        await pc.setRemoteDescription(new RTCSessionDescription(data.signal.sdp));
-        if (data.signal.sdp.type === 'offer') {
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          socket.emit('signal', { to: data.from, signal: { sdp: answer } });
-        }
-      }
-
-      if (data.signal.candidate) {
-        await pc.addIceCandidate(new RTCIceCandidate(data.signal.candidate));
-      }
-    });
-
-    // تفعيل/تعطيل مايك الطالب من المدرس
-    socket.on('mic-toggled', async ({ enable }) => {
-      if (enable) {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach(track => pc.addTrack(track, pc.localDescription ? stream : null));
-      } else {
-        const senders = pc.getSenders();
-        senders.forEach(s => { if (s.track && s.track.kind === 'audio') s.track.stop(); });
-      }
-    });
-  </script>
+// المعلم يفعل المايك
+socket.on("mic-enabled", async () => {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  stream.getAudioTracks().forEach(track => pc.addTrack(track, stream));
+  alert("الميكروفون مفعل الآن!");
+});
+</script>
 </body>
 </html>
+
+
+
 

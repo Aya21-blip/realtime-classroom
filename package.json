@@ -1,23 +1,10 @@
 {
   "name": "realtime-classroom",
   "version": "1.0.0",
-  "description": "A real-time classroom platform with video streaming",
   "main": "server.js",
-  "scripts": {
-    "start": "node server.js"
-  },
-  "keywords": [
-    "realtime",
-    "classroom",
-    "education",
-    "socket.io",
-    "express"
-  ],
-  "author": "اسمك هنا",
-  "license": "ISC",
+  "scripts": { "start": "node server.js" },
   "dependencies": {
     "express": "^5.1.0",
     "socket.io": "^4.8.1"
   }
 }
-
