@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Student View</title>
+  <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
+  <style>
+    body { font-family: Arial; text-align: center; }
+    #remote-player, #screen-player { width: 400px; height: 300px; background: #000; margin: 10px auto; }
+    #mic-status { margin-top: 10px; }
+    button { padding: 5px 10px; margin-top: 5px; }
+  </style>
+</head>
+<body>
+  <h2>Student View</h2>
+  <div id="remote-player"></div>
+  <div id="screen-player"></div>
+  <p id="mic-status">Mic: Off</p>
+  <button id="ask-btn">Request to Speak</button>
+
+  <script>
+    const client = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
+    const appId = "afa944657ccc421290402e86ec596f4d";
+    const channel = "OnlineClassroom";
+    let localAudioTrack;
+
+    async function init(){
+      await client.join(appId, channel, null, null);
+      await client.setClientRole("audience");
+
+      // إنشاء track صوتي مغلق افتراضياً
+      const stream = await navigator.mediaDevices.getUserMedia({ audio:true });
+      localAudioTrack = stream.getAudioTracks()[0];
+      localAudioTrack.enabled = false;
+
+      // إرسال رسالة انضمام للأستاذ
+      client.sendStreamMessage(null, { type:"join" });
+
+      // استقبال الفيديو من المدرس والشاشة
+      client.on("user-published", async (user, mediaType) => {
+        await client.subscribe(user, mediaType);
+        if(mediaType==="video") user.videoTrack.play("remote-player");
+        if(mediaType==="screen") user.videoTrack.play("screen-player");
+      });
+
+      // التحكم بالمايك
+      client.on("stream-message", (evt)=>{
+        const msg = evt.msg;
+        if(msg.type==="toggle-mic"){
+          localAudioTrack.enabled = msg.enable;
+          document.getElementById("mic-status").innerText = "Mic: "+(msg.enable?"On":"Off");
+        }
+      });
+
+      // زر طلب سؤال
+      document.getElementById("ask-btn").onclick = ()=>{
+        client.sendStreamMessage(null, { type:"question" });
+        alert("Request sent to teacher");
+      };
+    }
+
+    init();
+  </script>
+</body>
+</html>
+
