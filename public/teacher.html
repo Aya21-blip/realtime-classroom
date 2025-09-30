@@ -1,13 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Teacher - Realtime Classroom</title>
 </head>
 <body>
   <h1>Teacher View</h1>
 
-  <video id="teacherVideo" autoplay playsinline muted></video>
+  <video id="teacherVideo" autoplay playsinline muted style="width: 300px; border: 1px solid black;"></video>
 
   <div>
     <h2>Students</h2>
@@ -27,59 +27,30 @@
     let localStream;
     let screenStream;
 
-    // الحصول على الكاميرا والميكروفون
+    // احضار الكاميرا والمايك
     navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       .then(stream => {
         localStream = stream;
         localVideo.srcObject = stream;
         socket.emit('join-room', 'teacher');
       })
-      .catch(err => console.error("getUserMedia error:", err));
+      .catch(err => {
+        console.error("Error accessing media devices.", err);
+      });
 
-    // مشاركة الشاشة
-    document.getElementById('shareScreen').onclick = async () => {
-      try {
-        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-        localVideo.srcObject = screenStream;
-
-        for (let id in peers) {
-          const pc = peers[id];
-          const videoTrack = screenStream.getVideoTracks()[0];
-          const sender = pc.getSenders().find(s => s.track.kind === 'video');
-          if (sender) sender.replaceTrack(videoTrack);
-        }
-      } catch(err) {
-        console.error("Screen share failed:", err);
-      }
-    };
-
-    // إيقاف مشاركة الشاشة
-    document.getElementById('stopScreen').onclick = () => {
-      if (!screenStream) return;
-      screenStream.getTracks().forEach(track => track.stop());
-      localVideo.srcObject = localStream;
-
-      for (let id in peers) {
-        const pc = peers[id];
-        const videoTrack = localStream.getVideoTracks()[0];
-        const sender = pc.getSenders().find(s => s.track.kind === 'video');
-        if (sender) sender.replaceTrack(videoTrack);
-      }
-    };
-
-    // طالب جديد انضم
+    // عند انضمام طالب
     socket.on('student-joined', studentId => {
       const li = document.createElement('li');
       li.id = studentId;
       li.innerHTML = `
-        ${studentId} 
+        ${studentId}
         <button onclick="toggleMic('${studentId}', true)">Enable Mic</button>
         <button onclick="toggleMic('${studentId}', false)">Disable Mic</button>
       `;
       studentsList.appendChild(li);
 
       const pc = new RTCPeerConnection();
-      if(localStream) localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
       pc.onicecandidate = event => {
         if (event.candidate) {
@@ -95,7 +66,6 @@
       });
     });
 
-    // استقبال signal
     socket.on('signal', async data => {
       const pc = peers[data.from];
       if (!pc) return;
@@ -107,12 +77,43 @@
       }
     });
 
-    // تفعيل/تعطيل مايك الطالب
     function toggleMic(studentId, enable) {
       socket.emit('toggle-mic', { studentId, enable });
     }
+
+    // مشاركة الشاشة
+    document.getElementById('shareScreen').onclick = async () => {
+      try {
+        screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        localVideo.srcObject = screenStream;
+
+        for (let id in peers) {
+          const pc = peers[id];
+          const videoTrack = screenStream.getVideoTracks()[0];
+          const sender = pc.getSenders().find(s => s.track.kind === 'video');
+          if (sender) sender.replaceTrack(videoTrack);
+        }
+      } catch (err) {
+        console.error("Screen share failed:", err);
+      }
+    };
+
+    // توقيف مشاركة الشاشة
+    document.getElementById('stopScreen').onclick = () => {
+      if (!screenStream) return;
+      screenStream.getTracks().forEach(track => track.stop());
+      localVideo.srcObject = localStream;
+
+      for (let id in peers) {
+        const pc = peers[id];
+        const videoTrack = localStream.getVideoTracks()[0];
+        const sender = pc.getSenders().find(s => s.track.kind === 'video');
+        if (sender) sender.replaceTrack(videoTrack);
+      }
+    };
   </script>
 </body>
 </html>
+
 
 
