@@ -80,7 +80,7 @@ socket.on("student-joined", studentId => {
   studentsList.appendChild(li);
 
   const pc = new RTCPeerConnection();
-  localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
   pc.onicecandidate = event => {
     if(event.candidate){

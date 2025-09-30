@@ -22,8 +22,9 @@ const requestMicBtn = document.getElementById("requestMic");
 const pc = new RTCPeerConnection();
 
 pc.ontrack = event => {
-  studentVideo.srcObject = event.streams[0];
+    studentVideo.srcObject = event.streams[0]; // هذا يحوّل البث الوارد للفيديو
 };
+
 
 pc.onicecandidate = event => {
   if(event.candidate){
