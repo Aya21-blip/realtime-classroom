@@ -1,68 +1,79 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Student - Realtime Classroom</title>
-<style>
-  body { text-align: center; font-family: Arial, sans-serif; }
-  video { width: 90%; max-width: 1000px; border: 2px solid black; margin-top: 20px; background-color: black; }
-  button { margin: 10px; padding: 10px; }
-</style>
+  <meta charset="UTF-8" />
+  <title>Student - Realtime Classroom</title>
 </head>
 <body>
-<h1>Student View</h1>
-<video id="studentVideo" autoplay playsinline></video>
-<button id="requestMic">🎤 Request Mic</button>
+  <h1>Student View</h1>
+  <video id="remoteVideo" autoplay playsinline></video>
 
-<script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
-<script>
-const socket = io();
-const studentVideo = document.getElementById("studentVideo");
-const requestMicBtn = document.getElementById("requestMic");
-const pc = new RTCPeerConnection();
+  <script>
+    // ✅ تحقق من دعم WebRTC
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.RTCPeerConnection) {
+      alert("متصفحك لا يدعم WebRTC، يرجى استخدام Google Chrome أو Firefox.");
+      throw new Error("WebRTC not supported");
+    }
 
-pc.ontrack = event => {
-    studentVideo.srcObject = event.streams[0]; // هذا يحوّل البث الوارد للفيديو
-};
+    // ✅ تحقق من صلاحيات الكاميرا (اختياري لأن الطالب لا يحتاجها بالبث عادة)
+    navigator.permissions?.query({ name: 'camera' }).then(status => {
+      if (status.state === 'denied') {
+        alert("يرجى السماح للكاميرا في إعدادات المتصفح إذا طُلب ذلك لاحقًا.");
+      }
+    }).catch(() => {
+      // بعض المتصفحات لا تدعم navigator.permissions
+    });
+  </script>
 
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    const remoteVideo = document.getElementById('remoteVideo');
+    const pc = new RTCPeerConnection();
 
-pc.onicecandidate = event => {
-  if(event.candidate){
-    socket.emit("signal", { to: "teacher", signal: { candidate: event.candidate } });
-  }
-};
+    // استقبال الصوت والفيديو من المعلم
+    pc.ontrack = (event) => {
+      remoteVideo.srcObject = event.streams[0];
+    };
 
-// الانضمام للصف
-socket.emit("join-room", "student");
+    // إرسال مرشح ICE
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit('signal', { to: teacherId, signal: { candidate: event.candidate } });
+      }
+    };
 
-// استقبال إشارة من المعلم
-socket.on("signal", async data => {
-  if(data.signal.sdp){
-    await pc.setRemoteDescription(new RTCSessionDescription(data.signal.sdp));
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    socket.emit("signal", { to: data.from, signal: { sdp: answer } });
-  }
-  if(data.signal.candidate){
-    await pc.addIceCandidate(new RTCIceCandidate(data.signal.candidate));
-  }
-});
+    let teacherId = null;
 
-// طلب المايك
-requestMicBtn.onclick = () => {
-  socket.emit("request-mic");
-};
+    socket.emit('join-room', 'student');
 
-// المعلم يفعل المايك
-socket.on("mic-enabled", async () => {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  stream.getAudioTracks().forEach(track => pc.addTrack(track, stream));
-  alert("الميكروفون مفعل الآن!");
-});
-</script>
+    // استقبال عرض SDP من المعلم
+    socket.on('signal', async data => {
+      teacherId = data.from;
+      const signal = data.signal;
+
+      if (signal.sdp) {
+        await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit('signal', { to: data.from, signal: { sdp: answer } });
+      }
+
+      if (signal.candidate) {
+        await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+      }
+    });
+
+    // استقبال أوامر تفعيل/تعطيل الميكروفون من المعلم (اختياري)
+    socket.on('mic-toggled', ({ enable }) => {
+      if (localStream) {
+        localStream.getAudioTracks().forEach(track => {
+          track.enabled = enable;
+        });
+      }
+    });
+
+    let localStream = null; // فقط إذا أردت لاحقًا مشاركة صوت الطالب مثلاً
+  </script>
 </body>
 </html>
-
-
-
-
